@@ -21,18 +21,8 @@ MoodTune is an AI-powered, real-time social music player that matches your track
 
 ---
 
-## 📸 Screenshots
 
-> [!NOTE]
-> *Screenshots placeholder section. Replace the mock URLs with actual interface images.*
 
-| Feature | Screenshot |
-|---|---|
-| **Main Dashboard & Player** | `![Dashboard Mockup](https://via.placeholder.com/800x450?text=MoodTune+Dashboard)` |
-| **Selfie Camera & Mood Detection** | `![Camera Feed Mockup](https://via.placeholder.com/800x450?text=Webcam+Mood+Detection)` |
-| **Collaborative Sync Rooms** | `![Listening Room Mockup](https://via.placeholder.com/800x450?text=Real-Time+Listening+Rooms)` |
-
----
 
 ## 🛠️ Local Development Setup
 
