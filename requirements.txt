@@ -1,0 +1,9 @@
+django
+google-genai
+requests
+gunicorn
+whitenoise
+python-dotenv
+google-cloud-storage
+daphne
+channels
