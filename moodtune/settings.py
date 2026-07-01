@@ -32,6 +32,11 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
+CSRF_TRUSTED_ORIGINS = [
+    'https://song-app-production-b937.up.railway.app',
+    'https://*.up.railway.app',
+]
+
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 YOUTUBE_API_KEY = os.environ.get('YOUTUBE_API_KEY')
 GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
