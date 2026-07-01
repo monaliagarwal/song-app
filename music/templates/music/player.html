@@ -5,6 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MoodTune - AI Music Player</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#1DB954">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MoodTune">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
     <!-- Google Fonts Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1286,6 +1292,10 @@
                     <i class="fa-solid fa-magnifying-glass"></i>
                     Search
                 </button>
+                <button class="nav-btn nav-btn-search" id="installBtn" style="display: none;">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    📲 Install App
+                </button>
             </div>
 
             <!-- Playlists Section -->
@@ -1586,6 +1596,42 @@
     </div>
 
     <script>
+        // PWA Service Worker registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js')
+                    .then(reg => console.log('SW registered:', reg))
+                    .catch(err => console.log('SW failed:', err));
+            });
+        }
+
+        // Install prompt button in sidebar
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const installBtn = document.getElementById('installBtn');
+            if (installBtn) {
+                installBtn.style.display = 'block';
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const installBtn = document.getElementById('installBtn');
+            if (installBtn) {
+                installBtn.addEventListener('click', () => {
+                    if (deferredPrompt) {
+                        deferredPrompt.prompt();
+                        if (typeof deferredPrompt.waitForOutcome === 'function') {
+                            deferredPrompt.waitForOutcome();
+                        }
+                        deferredPrompt = null;
+                        installBtn.style.display = 'none';
+                    }
+                });
+            }
+        });
+
         // Global variables
         const roomId = "{{ room_id|default:'' }}";
         const sessionId = "{{ session_id|default:'' }}";
