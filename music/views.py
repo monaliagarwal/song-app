@@ -495,29 +495,51 @@ def reorder_songs_view(request, playlist_id):
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 
-@require_http_methods(["POST"])
-def detect_mood_view(request):
+def detect_mood(image_data):
     """
-    Receives a base64-encoded image, calls Gemini Vision API to analyze facial expressions,
-    and returns detected mood and analysis data in JSON format.
+    Helper function to process image data and call Gemini Vision API.
     """
-    view_start = time.time()
-    gemini_time = 0.0
-    youtube_time = 0.0
-    embed_check_time = 0.0
-    db_time = 0.0
+    import base64
+    from PIL import Image
+
+    # Fetch API key from settings or environment
+    from django.conf import settings
+    api_key = getattr(settings, 'GEMINI_API_KEY', None)
+    if not api_key:
+        api_key = os.environ.get('GEMINI_API_KEY')
+
+    if not api_key:
+        raise ValueError('Gemini API key is not configured.')
+
+    client = genai.Client(api_key=api_key)
+
+    img_bytes = base64.b64decode(image_data)
+
+    # Compress and resize image using Pillow
     try:
-        data = json.loads(request.body)
-        image_data = data.get('image', '').strip()
+        image = Image.open(io.BytesIO(img_bytes))
+        # Convert to RGB mode if it's in RGBA/LA/P mode to allow JPEG save
+        if image.mode in ('RGBA', 'LA', 'P'):
+            image = image.convert('RGB')
+        # Calculate new size keeping aspect ratio with max 800px on the longest side
+        max_size = 800
+        width, height = image.size
+        if width > max_size or height > max_size:
+            if width > height:
+                new_width = max_size
+                new_height = int(height * (max_size / width))
+            else:
+                new_height = max_size
+                new_width = int(width * (max_size / height))
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        # Re-encode as JPEG quality=80
+        out_bytes_io = io.BytesIO()
+        image.save(out_bytes_io, format='JPEG', quality=80)
+        img_bytes = out_bytes_io.getvalue()
+    except Exception as img_err:
+        logger.warning(f"Selfie compression failed: {img_err}. Proceeding with original bytes.")
 
-        if not image_data:
-            return JsonResponse({'status': 'error', 'message': 'No image data provided'}, status=400)
-
-        # Strip prefix if it's a data URL (e.g. "data:image/jpeg;base64,...")
-        if ',' in image_data:
-            image_data = image_data.split(',', 1)[1]
-
-        prompt = """Look at this person's face carefully.
+    prompt = """Look at this person's face carefully.
 Analyse their facial expression, eyes, and overall appearance.
 
 Detect their current emotional state and return ONLY this JSON:
@@ -530,115 +552,82 @@ Detect their current emotional state and return ONLY this JSON:
 
 Be accurate but fun. No extra text, only JSON."""
 
-        # Fetch API key from settings or environment
-        from django.conf import settings
-        api_key = getattr(settings, 'GEMINI_API_KEY', None)
-        if not api_key:
-            api_key = os.environ.get('GEMINI_API_KEY')
-
-        if not api_key:
-            return JsonResponse({'status': 'error', 'message': 'Gemini API key is not configured.'}, status=500)
-
-        client = genai.Client(api_key=api_key)
-
-        import base64
-        img_bytes = base64.b64decode(image_data)
-
-        # Compress and resize image using Pillow
-        try:
-            image = Image.open(io.BytesIO(img_bytes))
-            # Convert to RGB mode if it's in RGBA/LA/P mode to allow JPEG save
-            if image.mode in ('RGBA', 'LA', 'P'):
-                image = image.convert('RGB')
-            # Calculate new size keeping aspect ratio with max 800px on the longest side
-            max_size = 800
-            width, height = image.size
-            if width > max_size or height > max_size:
-                if width > height:
-                    new_width = max_size
-                    new_height = int(height * (max_size / width))
-                else:
-                    new_height = max_size
-                    new_width = int(width * (max_size / height))
-                image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            # Re-encode as JPEG quality=80
-            out_bytes_io = io.BytesIO()
-            image.save(out_bytes_io, format='JPEG', quality=80)
-            img_bytes = out_bytes_io.getvalue()
-        except Exception as img_err:
-            logger.warning(f"Selfie compression failed: {img_err}. Proceeding with original bytes.")
-
-        # Send image to Gemini using the new Client syntax, wrapped in timeout
-        gemini_start = time.time()
-        api_name = "Gemini Vision mood detection"
-        try:
-            def make_vision_call():
-                return client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=[
-                        types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg'),
-                        prompt
-                    ],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
-                    )
+    # Send image to Gemini using the new Client syntax, wrapped in timeout
+    gemini_start = time.time()
+    api_name = "Gemini Vision mood detection"
+    try:
+        def make_vision_call():
+            return client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[
+                    types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg'),
+                    prompt
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
                 )
+            )
 
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(make_vision_call)
-                response = future.result(timeout=30)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(make_vision_call)
+            response = future.result(timeout=30)
 
-            logger.info(f"API_CALL_SUCCESS: {api_name} took {time.time()-gemini_start:.2f}s")
+        logger.info(f"API_CALL_SUCCESS: {api_name} took {time.time()-gemini_start:.2f}s")
+    except Exception as e:
+        if isinstance(e, TimeoutError):
+            logger.error(f"API_CALL_FAILED: {api_name} error: Network timeout (Gemini call timed out after 30s) took {time.time()-gemini_start:.2f}s")
+        elif isinstance(e, errors.APIError):
+            if e.code == 429:
+                logger.error(f"GEMINI_API_RATE_LIMIT (429): {api_name} error: rate limit hit took {time.time()-gemini_start:.2f}s")
+            logger.error(f"API_CALL_FAILED: {api_name} error: APIError {e.code} - {e.message} took {time.time()-gemini_start:.2f}s")
+        else:
+            logger.error(f"API_CALL_FAILED: {api_name} error: {str(e)} took {time.time()-gemini_start:.2f}s")
+        raise
+
+    raw_text = response.text.strip()
+
+    # Handle markdown blocks ```json ... ``` robustly if they exist
+    if raw_text.startswith("```"):
+        lines = raw_text.splitlines()
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines[-1].startswith("```"):
+            lines = lines[:-1]
+        raw_text = "\n".join(lines).strip()
+
+    return json.loads(raw_text)
+
+
+@require_http_methods(["POST"])
+def detect_mood_view(request):
+    """
+    Receives a base64-encoded image, calls Gemini Vision API to analyze facial expressions,
+    and returns detected mood and analysis data in JSON format.
+    """
+    try:
+        data = json.loads(request.body)
+        image_data = data.get('image', '').strip()
+
+        if not image_data:
+            return JsonResponse({'status': 'error', 'message': 'No image data provided'}, status=400)
+
+        # Strip prefix if it's a data URL (e.g. "data:image/jpeg;base64,...")
+        if ',' in image_data:
+            image_data = image_data.split(',', 1)[1]
+
+        try:
+            result = detect_mood(image_data)
         except Exception as e:
-            if isinstance(e, TimeoutError):
-                logger.error(f"API_CALL_FAILED: {api_name} error: Network timeout (Gemini call timed out after 30s) took {time.time()-gemini_start:.2f}s")
-            elif isinstance(e, errors.APIError):
-                if e.code == 429:
-                    logger.error(f"GEMINI_API_RATE_LIMIT (429): {api_name} error: rate limit hit took {time.time()-gemini_start:.2f}s")
-                logger.error(f"API_CALL_FAILED: {api_name} error: APIError {e.code} - {e.message} took {time.time()-gemini_start:.2f}s")
-            else:
-                logger.error(f"API_CALL_FAILED: {api_name} error: {str(e)} took {time.time()-gemini_start:.2f}s")
-            raise
-        finally:
-            gemini_time = time.time() - gemini_start
-
-        raw_text = response.text.strip()
-
-        # Handle markdown blocks ```json ... ``` robustly if they exist
-        if raw_text.startswith("```"):
-            lines = raw_text.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].startswith("```"):
-                lines = lines[:-1]
-            raw_text = "\n".join(lines).strip()
-
-        result_json = json.loads(raw_text)
-
-        total_time = time.time() - view_start
-        logger.info(f"""
-TIMING BREAKDOWN:
-- Gemini call: {gemini_time:.2f}s
-- YouTube searches: {youtube_time:.2f}s  
-- Embeddable checks: {embed_check_time:.2f}s
-- Database saves: {db_time:.2f}s
-- TOTAL: {total_time:.2f}s
-""")
+            import traceback
+            print(f"DETECT MOOD ERROR: {traceback.format_exc()}")
+            return JsonResponse({'error': str(e)}, status=500)
 
         return JsonResponse({
             'status': 'success',
-            'data': result_json
+            'data': result
         })
 
     except Exception as e:
-        total_time = time.time() - view_start
-        logger.info(f"""
-TIMING BREAKDOWN:
-- Gemini call: {gemini_time:.2f}s
-- YouTube searches: {youtube_time:.2f}s  
-- Embeddable checks: {embed_check_time:.2f}s
-- Database saves: {db_time:.2f}s
-- TOTAL: {total_time:.2f}s
-""")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 
