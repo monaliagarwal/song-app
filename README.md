@@ -12,7 +12,7 @@ MoodTune is an AI-powered, real-time social music player that matches your track
 
 ## ✨ Features
 
-- **🧠 Smart AI Curation**: Describe your current mood or select emojis, and MoodTune will use the Google Gemini API (`gemini-2.5-flash`) to generate a customized playlist matching your vibe.
+- **🧠 Smart AI Curation**: Describe your current mood or select emojis, and MoodTune will use the Google Gemini API (`gemini-flash-latest`) to generate a customized playlist matching your vibe.
 - **📸 Selfie Mood Detection**: Snap or upload a photo using your webcam. MoodTune analyzes facial expressions in real-time, extracts key emotion vectors (mood, confidence level, fun description, and energy level), and automatically starts playing a matching playlist.
 - **⚡ Real-Time Listening Rooms**: Create or join listening rooms powered by WebSockets (Django Channels & Daphne). Play, pause, skip, and reorder songs collaboratively with friends, keeping all participants completely in sync.
 - **🎧 Continuous Playback & Robust Fallbacks**: Automatically handles region-restricted or unembeddable YouTube videos by triggering a red-bordered toast notification with a redirect to YouTube Music, auto-skipping to the next track after 4 seconds.

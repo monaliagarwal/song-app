@@ -306,7 +306,7 @@ Return ONLY this JSON, nothing else:
             try:
                 def make_gemini_call():
                     return client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-flash-latest',
                         contents=prompt,
                         config={"response_mime_type": "application/json"}
                     )

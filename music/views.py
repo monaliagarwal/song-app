@@ -566,7 +566,7 @@ Be accurate but fun. No extra text, only JSON."""
     try:
         def make_vision_call():
             return client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-flash-latest',
                 contents=[
                     types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg'),
                     prompt
