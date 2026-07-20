@@ -79,6 +79,12 @@ def generate_playlist_view(request):
         if not mood_text:
             return JsonResponse({'status': 'error', 'message': 'Mood description is required'}, status=400)
 
+        from .ai_engine import get_gemini_api_key, get_youtube_api_key
+        if not get_gemini_api_key():
+            return JsonResponse({'status': 'error', 'message': 'gemini_api environment variable is not set on Render.'}, status=400)
+        if not get_youtube_api_key():
+            return JsonResponse({'status': 'error', 'message': 'youtube_api environment variable is not set on Render.'}, status=400)
+
         # Decorate mood text with language preference for Gemini prompt
         gemini_prompt = mood_text
         if language_preference and language_preference != 'mix':
@@ -266,7 +272,7 @@ def search_view(request):
     try:
         from .ai_engine import get_youtube_api_key
         if not get_youtube_api_key():
-            return JsonResponse({'status': 'error', 'message': 'YOUTUBE_API_KEY is not configured in environment.'}, status=400)
+            return JsonResponse({'status': 'error', 'message': 'youtube_api environment variable is not set on Render.'}, status=400)
 
         query = request.GET.get('q', '').strip()
         if not query:
@@ -507,13 +513,11 @@ def detect_mood(image_data):
     from PIL import Image
 
     # Fetch API key from settings or environment
-    from django.conf import settings
-    api_key = getattr(settings, 'GROQ_API_KEY', None) or getattr(settings, 'GEMINI_API_KEY', None)
-    if not api_key:
-        api_key = os.environ.get('groq_api') or os.environ.get('GEMINI_API_KEY')
+    from .ai_engine import get_gemini_api_key
+    api_key = get_gemini_api_key()
 
     if not api_key:
-        raise ValueError('Gemini API key is not configured.')
+        raise ValueError('gemini_api environment variable is not set on Render.')
 
     client = genai.Client(api_key=api_key)
 
@@ -609,6 +613,10 @@ def detect_mood_view(request):
     and returns detected mood and analysis data in JSON format.
     """
     try:
+        from .ai_engine import get_gemini_api_key
+        if not get_gemini_api_key():
+            return JsonResponse({'status': 'error', 'message': 'gemini_api environment variable is not set on Render.'}, status=400)
+
         data = json.loads(request.body)
         image_data = data.get('image', '').strip()
 

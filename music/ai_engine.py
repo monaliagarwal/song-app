@@ -10,22 +10,22 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 def get_groq_api_key():
     try:
         from django.conf import settings
-        key = getattr(settings, 'GROQ_API_KEY', None) or getattr(settings, 'GEMINI_API_KEY', None)
+        key = getattr(settings, 'GROQ_API_KEY', None)
         if key:
             return key
     except Exception:
         pass
-    return os.environ.get('groq_api') or os.environ.get('GROQ_API_KEY') or os.environ.get('GEMINI_API_KEY')
+    return os.environ.get('groq_api') or os.environ.get('GROQ_API_KEY')
 
 def get_gemini_api_key():
     try:
         from django.conf import settings
-        key = getattr(settings, 'GROQ_API_KEY', None) or getattr(settings, 'GEMINI_API_KEY', None)
+        key = getattr(settings, 'GEMINI_API_KEY', None)
         if key:
             return key
     except Exception:
         pass
-    return os.environ.get('groq_api') or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+    return os.environ.get('gemini_api') or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
 
 def get_youtube_api_key():
     try:
@@ -235,9 +235,9 @@ def get_mood_playlist(mood_text):
         youtube_key = get_youtube_api_key()
 
         if not gemini_key:
-            raise ValueError("GEMINI_API_KEY is not configured.")
+            raise ValueError("gemini_api environment variable is not set on Render.")
         if not youtube_key:
-            raise ValueError("YOUTUBE_API_KEY is not configured.")
+            raise ValueError("youtube_api environment variable is not set on Render.")
 
         client = genai.Client(api_key=gemini_key)
         good_songs = []

@@ -40,7 +40,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 GROQ_API_KEY = os.environ.get('groq_api') or os.environ.get('GROQ_API_KEY')
-GEMINI_API_KEY = os.environ.get('groq_api') or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+GEMINI_API_KEY = os.environ.get('gemini_api') or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
 YOUTUBE_API_KEY = os.environ.get('youtube_api') or os.environ.get('YOUTUBE_API_KEY') or os.environ.get('YOUTUBE_DATA_API_KEY')
 GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
 
