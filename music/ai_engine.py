@@ -7,23 +7,50 @@ from google import genai
 from google.genai import errors
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
-# Load API keys from Django settings if available, otherwise from environment variables
-try:
-    from django.conf import settings
-    GEMINI_API_KEY = getattr(settings, 'GEMINI_API_KEY', None)
-    YOUTUBE_API_KEY = getattr(settings, 'YOUTUBE_API_KEY', None)
-    GCS_BUCKET_NAME = getattr(settings, 'GCS_BUCKET_NAME', None)
-except Exception:
-    GEMINI_API_KEY = None
-    YOUTUBE_API_KEY = None
-    GCS_BUCKET_NAME = None
+def get_groq_api_key():
+    try:
+        from django.conf import settings
+        key = getattr(settings, 'GROQ_API_KEY', None) or getattr(settings, 'GEMINI_API_KEY', None)
+        if key:
+            return key
+    except Exception:
+        pass
+    return os.environ.get('groq_api') or os.environ.get('GROQ_API_KEY') or os.environ.get('GEMINI_API_KEY')
 
-if not GEMINI_API_KEY:
-    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-if not YOUTUBE_API_KEY:
-    YOUTUBE_API_KEY = os.environ.get('YOUTUBE_API_KEY')
-if not GCS_BUCKET_NAME:
-    GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
+def get_gemini_api_key():
+    try:
+        from django.conf import settings
+        key = getattr(settings, 'GROQ_API_KEY', None) or getattr(settings, 'GEMINI_API_KEY', None)
+        if key:
+            return key
+    except Exception:
+        pass
+    return os.environ.get('groq_api') or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+
+def get_youtube_api_key():
+    try:
+        from django.conf import settings
+        key = getattr(settings, 'YOUTUBE_API_KEY', None)
+        if key:
+            return key
+    except Exception:
+        pass
+    return os.environ.get('youtube_api') or os.environ.get('YOUTUBE_API_KEY') or os.environ.get('YOUTUBE_DATA_API_KEY')
+
+def get_gcs_bucket_name():
+    try:
+        from django.conf import settings
+        bucket = getattr(settings, 'GCS_BUCKET_NAME', None)
+        if bucket:
+            return bucket
+    except Exception:
+        pass
+    return os.environ.get('GCS_BUCKET_NAME')
+
+GROQ_API_KEY = get_groq_api_key()
+GEMINI_API_KEY = get_gemini_api_key()
+YOUTUBE_API_KEY = get_youtube_api_key()
+GCS_BUCKET_NAME = get_gcs_bucket_name()
 
 try:
     from google.cloud import storage
@@ -204,12 +231,15 @@ def get_mood_playlist(mood_text):
     queries Gemini for replacements until exactly 8 playable songs are secured.
     """
     try:
-        if not GEMINI_API_KEY:
+        gemini_key = get_gemini_api_key()
+        youtube_key = get_youtube_api_key()
+
+        if not gemini_key:
             raise ValueError("GEMINI_API_KEY is not configured.")
-        if not YOUTUBE_API_KEY:
+        if not youtube_key:
             raise ValueError("YOUTUBE_API_KEY is not configured.")
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = genai.Client(api_key=gemini_key)
         good_songs = []
         unplayable_titles = []
         mood_analysis = "Here is some music to match your vibe"
@@ -363,12 +393,13 @@ def search_songs(query):
     Searches YouTube for songs matching the query and returns a list of up to 10 results.
     """
     try:
-        if not YOUTUBE_API_KEY:
+        youtube_key = get_youtube_api_key()
+        if not youtube_key:
             raise ValueError("YOUTUBE_API_KEY is not configured.")
 
         yt_url = "https://www.googleapis.com/youtube/v3/search"
         params = {
-            "key": YOUTUBE_API_KEY,
+            "key": youtube_key,
             "q": query,
             "type": "video",
             "videoCategoryId": "10", # Music category

@@ -2762,15 +2762,16 @@
 
             searchTimeout = setTimeout(() => {
                 fetch(`/search/?q=${encodeURIComponent(query)}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.status === 'success') {
+                    .then(async res => {
+                        const data = await res.json().catch(() => ({}));
+                        if (res.ok && data.status === 'success') {
                             renderSearchResultsInPane(data.songs);
                         } else {
+                            const errorMsg = data.message || "Search failed. Please verify YOUTUBE_API_KEY environment variable on Render.";
                             container.innerHTML = `
                                 <div class="empty-state">
                                     <i class="fa-solid fa-triangle-exclamation"></i>
-                                    <p>Search failed. Try again.</p>
+                                    <p>${errorMsg}</p>
                                 </div>`;
                         }
                     })

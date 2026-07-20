@@ -264,13 +264,17 @@ def search_view(request):
     Searches YouTube music videos.
     """
     try:
+        from .ai_engine import get_youtube_api_key
+        if not get_youtube_api_key():
+            return JsonResponse({'status': 'error', 'message': 'YOUTUBE_API_KEY is not configured in environment.'}, status=400)
+
         query = request.GET.get('q', '').strip()
         if not query:
             return JsonResponse({'status': 'success', 'songs': []})
 
         results = search_songs(query)
         if results is None:
-            return JsonResponse({'status': 'error', 'message': 'Search failed'}, status=500)
+            return JsonResponse({'status': 'error', 'message': 'Search failed. Please check YouTube API key or quota.'}, status=500)
 
         return JsonResponse({'status': 'success', 'songs': results})
     except Exception as e:
@@ -504,9 +508,9 @@ def detect_mood(image_data):
 
     # Fetch API key from settings or environment
     from django.conf import settings
-    api_key = getattr(settings, 'GEMINI_API_KEY', None)
+    api_key = getattr(settings, 'GROQ_API_KEY', None) or getattr(settings, 'GEMINI_API_KEY', None)
     if not api_key:
-        api_key = os.environ.get('GEMINI_API_KEY')
+        api_key = os.environ.get('groq_api') or os.environ.get('GEMINI_API_KEY')
 
     if not api_key:
         raise ValueError('Gemini API key is not configured.')

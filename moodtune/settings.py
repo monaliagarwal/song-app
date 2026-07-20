@@ -30,15 +30,18 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-5c*gp*p-#9+r4kq^f00w0
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['song-app-z3t3.onrender.com', '*.onrender.com', 'localhost', '127.0.0.1', '*']
 
 CSRF_TRUSTED_ORIGINS = [
+    'https://song-app-z3t3.onrender.com',
+    'https://*.onrender.com',
     'https://song-app-production-b937.up.railway.app',
     'https://*.up.railway.app',
 ]
 
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-YOUTUBE_API_KEY = os.environ.get('YOUTUBE_API_KEY')
+GROQ_API_KEY = os.environ.get('groq_api') or os.environ.get('GROQ_API_KEY')
+GEMINI_API_KEY = os.environ.get('groq_api') or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+YOUTUBE_API_KEY = os.environ.get('youtube_api') or os.environ.get('YOUTUBE_API_KEY') or os.environ.get('YOUTUBE_DATA_API_KEY')
 GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
 
 
@@ -144,7 +147,16 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+WHITENOISE_MANIFEST_STRICT = False
 
 LOGGING = {
     'version': 1,

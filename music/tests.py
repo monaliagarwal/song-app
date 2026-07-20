@@ -3,7 +3,7 @@ from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from unittest.mock import patch
 
-@override_settings(GEMINI_API_KEY='dummy-gemini-key', YOUTUBE_API_KEY='dummy-youtube-key')
+@override_settings(GROQ_API_KEY='dummy-groq-key', GEMINI_API_KEY='dummy-gemini-key', YOUTUBE_API_KEY='dummy-youtube-key')
 class MusicAppTests(TestCase):
     def setUp(self):
         self.client = Client()
