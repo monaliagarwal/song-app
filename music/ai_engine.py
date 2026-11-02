@@ -7,6 +7,52 @@ from google import genai
 from google.genai import errors
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
+# Fallback models in priority order for Gemini calls
+GEMINI_MODELS = [
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+]
+
+def is_overloaded_error(exc):
+    """True if the exception is a temporary Gemini overload / rate limit."""
+    if isinstance(exc, errors.APIError):
+        return exc.code in (429, 500, 503, 504)
+    text = str(exc)
+    return '503' in text or '429' in text or 'UNAVAILABLE' in text or 'RESOURCE_EXHAUSTED' in text
+
+def is_model_not_found_error(exc):
+    """True if the model name does not exist or is retired."""
+    if isinstance(exc, errors.APIError):
+        return exc.code == 404 or (exc.code == 400 and 'not found' in (exc.message or '').lower())
+    text = str(exc).lower()
+    return '404' in text or 'not found' in text
+
+
+def generate_content_with_fallback(client, contents, config):
+    for index, model in enumerate(GEMINI_MODELS):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config
+            )
+            logger.info("Gemini generation succeeded with model %s", model)
+            return response
+        except Exception as exc:
+            if not (is_overloaded_error(exc) or is_model_not_found_error(exc)):
+                raise
+            if index == len(GEMINI_MODELS) - 1:
+                raise
+            logger.warning(
+                "Gemini model %s unavailable; trying fallback model: %s",
+                model,
+                exc
+            )
+
+    raise RuntimeError("No Gemini models are configured.")
+
+
 def get_groq_api_key():
     try:
         from django.conf import settings
@@ -305,8 +351,8 @@ Return ONLY this JSON, nothing else:
             api_name = "Gemini playlist generation"
             try:
                 def make_gemini_call():
-                    return client.models.generate_content(
-                        model='gemini-flash-latest',
+                    return generate_content_with_fallback(
+                        client,
                         contents=prompt,
                         config={"response_mime_type": "application/json"}
                     )
@@ -491,4 +537,3 @@ def save_to_cloud(session_id, playlist_data, mood_text):
         return blob.public_url
     except Exception:
         return None
-

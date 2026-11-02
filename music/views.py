@@ -16,13 +16,32 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from .models import Playlist, Song, MoodHistory
-from .ai_engine import get_mood_playlist, search_songs, save_to_cloud, GCS_AVAILABLE, GCS_BUCKET_NAME
+from .ai_engine import (
+    get_mood_playlist,
+    search_songs,
+    save_to_cloud,
+    GCS_AVAILABLE,
+    GCS_BUCKET_NAME,
+    generate_content_with_fallback,
+)
 
 logger = logging.getLogger('moodtune')
+
+BUSY_MESSAGE = 'The AI is busy right now. Please try again in a few seconds.'
+
 
 # Helper function to get or generate session ID
 def get_session_id(request):
     return request.COOKIES.get('moodtune_session_id')
+
+
+def is_overloaded_error(exc):
+    """True if the exception is a temporary Gemini overload / rate limit."""
+    if isinstance(exc, errors.APIError):
+        return exc.code in (429, 500, 503, 504)
+    text = str(exc)
+    return '503' in text or '429' in text or 'UNAVAILABLE' in text
+
 
 @ensure_csrf_cookie
 def index_view(request):
@@ -56,6 +75,7 @@ def index_view(request):
         response.set_cookie('moodtune_session_id', session_id, max_age=365 * 24 * 60 * 60, httponly=True)
 
     return response
+
 
 @require_http_methods(["POST"])
 def generate_playlist_view(request):
@@ -102,14 +122,14 @@ def generate_playlist_view(request):
         if existing_history and existing_history.playlist:
             db_start = time.time()
             cached_playlist = existing_history.playlist
-            
+
             # Clone the playlist for the current session
             playlist = Playlist.objects.create(
                 name=cached_playlist.name,
                 session_id=session_id,
                 mood=cached_playlist.mood
             )
-            
+
             # Clone all songs
             songs_response = []
             for song in cached_playlist.songs.all().order_by('order'):
@@ -132,7 +152,7 @@ def generate_playlist_view(request):
                     'order': new_song.order,
                     'is_favorite': False
                 })
-                
+
             # Create MoodHistory entry for current session
             history = MoodHistory.objects.create(
                 session_id=session_id,
@@ -145,12 +165,12 @@ def generate_playlist_view(request):
             logger.info(f"""
 TIMING BREAKDOWN:
 - Gemini call: {gemini_time:.2f}s
-- YouTube searches: {youtube_time:.2f}s  
+- YouTube searches: {youtube_time:.2f}s
 - Embeddable checks: {embed_check_time:.2f}s
 - Database saves: {db_time:.2f}s
 - TOTAL: {total_time:.2f}s
 """)
-            
+
             return JsonResponse({
                 'status': 'success',
                 'playlist': {
@@ -168,9 +188,11 @@ TIMING BREAKDOWN:
             })
 
         # Generate playlist recommendations
+        # (get_mood_playlist in ai_engine.py now retries and falls back to other models)
         playlist_data = get_mood_playlist(gemini_prompt)
         if not playlist_data:
-            return JsonResponse({'status': 'error', 'message': 'AI could not process mood request. Please verify API configurations.'}, status=500)
+            # Most common reason: Gemini overloaded (503). Friendly message instead of a crash.
+            return JsonResponse({'status': 'error', 'message': BUSY_MESSAGE}, status=503)
 
         # Extract timing metrics if they exist
         gemini_time = playlist_data.get('gemini_time', 0.0)
@@ -198,7 +220,7 @@ TIMING BREAKDOWN:
                 artist=song.get('artist', 'Unknown Artist'),
                 youtube_id=song.get('youtube_id', ''),
                 thumbnail=song.get('thumbnail', ''),
-                duration='3:30', # Default duration
+                duration='3:30',  # Default duration
                 order=index
             )
             songs_response.append({
@@ -231,7 +253,7 @@ TIMING BREAKDOWN:
         logger.info(f"""
 TIMING BREAKDOWN:
 - Gemini call: {gemini_time:.2f}s
-- YouTube searches: {youtube_time:.2f}s  
+- YouTube searches: {youtube_time:.2f}s
 - Embeddable checks: {embed_check_time:.2f}s
 - Database saves: {db_time:.2f}s
 - TOTAL: {total_time:.2f}s
@@ -258,12 +280,15 @@ TIMING BREAKDOWN:
         logger.info(f"""
 TIMING BREAKDOWN:
 - Gemini call: {gemini_time:.2f}s
-- YouTube searches: {youtube_time:.2f}s  
+- YouTube searches: {youtube_time:.2f}s
 - Embeddable checks: {embed_check_time:.2f}s
 - Database saves: {db_time:.2f}s
 - TOTAL: {total_time:.2f}s
 """)
+        if is_overloaded_error(e):
+            return JsonResponse({'status': 'error', 'message': BUSY_MESSAGE}, status=503)
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 
 def search_view(request):
     """
@@ -285,6 +310,7 @@ def search_view(request):
         return JsonResponse({'status': 'success', 'songs': results})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 
 @require_http_methods(["POST"])
 def create_playlist_view(request):
@@ -316,6 +342,7 @@ def create_playlist_view(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
+
 @require_http_methods(["POST"])
 def add_song_view(request):
     """
@@ -336,7 +363,7 @@ def add_song_view(request):
             return JsonResponse({'status': 'error', 'message': 'YouTube ID is required'}, status=400)
 
         playlist = Playlist.objects.get(id=playlist_id)
-        
+
         # Calculate order
         next_order = Song.objects.filter(playlist=playlist).count()
 
@@ -369,10 +396,12 @@ def add_song_view(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
+
 # Helper to find playlist ID when posting direct song cards
 def active_playlist_id_resolver(request):
     # Try fetching playlist ID from headers or request path
     return None
+
 
 @require_http_methods(["POST"])
 def remove_song_view(request):
@@ -402,6 +431,7 @@ def remove_song_view(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
+
 @require_http_methods(["POST"])
 def delete_playlist_view(request):
     """
@@ -424,6 +454,7 @@ def delete_playlist_view(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
+
 def get_playlist_view(request, playlist_id):
     """
     Retrieves all songs belonging to a playlist.
@@ -431,7 +462,7 @@ def get_playlist_view(request, playlist_id):
     try:
         playlist = Playlist.objects.get(id=playlist_id)
         songs = Song.objects.filter(playlist=playlist).order_by('order')
-        
+
         songs_data = []
         for song in songs:
             songs_data.append({
@@ -442,7 +473,7 @@ def get_playlist_view(request, playlist_id):
                 'thumbnail': song.thumbnail,
                 'duration': song.duration,
                 'order': song.order,
-                'is_favorite': False # Placeholder for favorite logic
+                'is_favorite': False  # Placeholder for favorite logic
             })
 
         return JsonResponse({
@@ -458,6 +489,7 @@ def get_playlist_view(request, playlist_id):
         return JsonResponse({'status': 'error', 'message': 'Playlist not found'}, status=404)
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 
 @require_http_methods(["POST"])
 def update_name_view(request, playlist_id):
@@ -480,6 +512,7 @@ def update_name_view(request, playlist_id):
         return JsonResponse({'status': 'error', 'message': 'Playlist not found'}, status=404)
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 
 @require_http_methods(["POST"])
 def reorder_songs_view(request, playlist_id):
@@ -508,6 +541,7 @@ def reorder_songs_view(request, playlist_id):
 def detect_mood(image_data):
     """
     Helper function to process image data and call Gemini Vision API.
+    Retries on temporary errors (503/429) and falls back to other models.
     """
     import base64
     from PIL import Image
@@ -565,25 +599,23 @@ Be accurate but fun. No extra text, only JSON."""
     api_name = "Gemini Vision mood detection"
     try:
         def make_vision_call():
-            return client.models.generate_content(
-                model='gemini-flash-latest',
+            return generate_content_with_fallback(
+                client,
                 contents=[
                     types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg'),
                     prompt
                 ],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                )
+                config=types.GenerateContentConfig(response_mime_type="application/json")
             )
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(make_vision_call)
-            response = future.result(timeout=30)
+            response = future.result(timeout=60)
 
         logger.info(f"API_CALL_SUCCESS: {api_name} took {time.time()-gemini_start:.2f}s")
     except Exception as e:
         if isinstance(e, TimeoutError):
-            logger.error(f"API_CALL_FAILED: {api_name} error: Network timeout (Gemini call timed out after 30s) took {time.time()-gemini_start:.2f}s")
+            logger.error(f"API_CALL_FAILED: {api_name} error: Network timeout (Gemini call timed out after 60s) took {time.time()-gemini_start:.2f}s")
         elif isinstance(e, errors.APIError):
             if e.code == 429:
                 logger.error(f"GEMINI_API_RATE_LIMIT (429): {api_name} error: rate limit hit took {time.time()-gemini_start:.2f}s")
@@ -632,7 +664,9 @@ def detect_mood_view(request):
         except Exception as e:
             import traceback
             print(f"DETECT MOOD ERROR: {traceback.format_exc()}")
-            return JsonResponse({'error': str(e)}, status=500)
+            if is_overloaded_error(e):
+                return JsonResponse({'status': 'error', 'message': BUSY_MESSAGE}, status=503)
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
         return JsonResponse({
             'status': 'success',
@@ -641,5 +675,3 @@ def detect_mood_view(request):
 
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-
-
