@@ -3,6 +3,7 @@ import json
 import requests
 import logging
 import time
+from types import SimpleNamespace
 from google import genai
 from google.genai import errors
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
@@ -13,6 +14,7 @@ GEMINI_MODELS = [
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
 ]
+GROQ_PLAYLIST_MODEL = 'openai/gpt-oss-120b'
 
 def is_overloaded_error(exc):
     """True if the exception is a temporary Gemini overload / rate limit."""
@@ -62,6 +64,44 @@ def get_groq_api_key():
     except Exception:
         pass
     return os.environ.get('groq_api') or os.environ.get('GROQ_API_KEY')
+
+
+def generate_playlist_content_with_fallback(client, contents, config):
+    try:
+        return generate_content_with_fallback(client, contents, config)
+    except Exception as gemini_error:
+        groq_key = get_groq_api_key()
+        if not groq_key:
+            raise
+
+        logger.warning(
+            "Gemini playlist generation failed; trying Groq fallback: %s",
+            gemini_error
+        )
+        try:
+            response = requests.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers={'Authorization': f'Bearer {groq_key}'},
+                json={
+                    'model': GROQ_PLAYLIST_MODEL,
+                    'messages': [{'role': 'user', 'content': contents}],
+                    'response_format': {'type': 'json_object'}
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            text = response.json()['choices'][0]['message']['content']
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError('Groq returned an empty playlist response.')
+            logger.info("Groq playlist generation succeeded with model %s", GROQ_PLAYLIST_MODEL)
+            return SimpleNamespace(text=text)
+        except Exception as groq_error:
+            logger.exception("Groq playlist generation fallback failed")
+            raise RuntimeError(
+                f"Gemini generation failed ({gemini_error}); "
+                f"Groq fallback failed ({groq_error})"
+            ) from groq_error
+
 
 def get_gemini_api_key():
     try:
@@ -351,7 +391,7 @@ Return ONLY this JSON, nothing else:
             api_name = "Gemini playlist generation"
             try:
                 def make_gemini_call():
-                    return generate_content_with_fallback(
+                    return generate_playlist_content_with_fallback(
                         client,
                         contents=prompt,
                         config={"response_mime_type": "application/json"}
